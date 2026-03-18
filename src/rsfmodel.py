@@ -6,6 +6,7 @@ from rpy2.robjects import pandas2ri
 from rpy2.robjects.conversion import localconverter
 from sklearn.base import BaseEstimator, TransformerMixin
 from sksurv.metrics import concordance_index_censored
+from sklearn.utils.class_weight import compute_sample_weight
 
 rangerPkg = importr("ranger")
 SEED = 42
@@ -21,17 +22,19 @@ def _to_r(df):
 
 class RandomSurvivalForest(BaseEstimator, TransformerMixin):
 
-    def __init__(self, num_trees=300, min_node_size=20,
-                 mtry=10, splitrule="C",
+    def __init__(self, num_trees=500, min_node_size=5,
+                 mtry=10, splitrule="C", importance="none", compute_weights=True,
                  time_col="TIME", event_col="EVENT_MCI"):
         self.num_trees     = num_trees
         self.min_node_size = min_node_size
         self.mtry          = mtry
         self.splitrule     = splitrule
+        self.importance    = importance
         self.time_col      = time_col    # original name in dataset e.g. "EVENT_MCI"
         self.event_col     = event_col   # original name in dataset e.g. "TIME"
+        self.compute_weights = compute_weights
 
-    def fit(self, X, y, importance="permutation"):
+    def fit(self, X, y):
         ro.r('library(survival)')
         ro.r('library(ranger)')
 
@@ -51,6 +54,12 @@ class RandomSurvivalForest(BaseEstimator, TransformerMixin):
         mtry = (max(1, int(np.sqrt(n_features)))
                 if self.mtry == "sqrt"
                 else max(1, int(self.mtry)))
+        
+        if self.compute_weights:
+            weights  = compute_sample_weight("balanced", y[self.event_col])
+            case_weights_r = ro.FloatVector(weights)
+        else:
+            case_weights_r = ro.NULL
 
         # always use internal R-safe names in the formula
         self.model_ = rangerPkg.ranger(
@@ -62,7 +71,8 @@ class RandomSurvivalForest(BaseEstimator, TransformerMixin):
             splitrule     = self.splitrule,
             num_threads   = 0,
             seed          = SEED,
-            importance    = importance
+            importance    = self.importance,
+            case_weights  = case_weights_r
         )
         return self
 
@@ -131,3 +141,9 @@ class RandomSurvivalForest(BaseEstimator, TransformerMixin):
         df.columns = ['X' + col if col[0].isdigit() else col
                       for col in df.columns]
         return df
+
+    def __transform_weight_to_r_format(self, case_weights):
+        if case_weights is None:
+            return ro.NULL
+        else:
+            return ro.FloatVector(case_weights)
