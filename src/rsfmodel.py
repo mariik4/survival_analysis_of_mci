@@ -51,9 +51,12 @@ class RandomSurvivalForest(BaseEstimator, TransformerMixin):
         self._feature_names = clean_names
 
         n_features = X.shape[1]
-        mtry = (max(1, int(np.sqrt(n_features)))
-                if self.mtry == "sqrt"
-                else max(1, int(self.mtry)))
+        if self.mtry == "sqrt":
+            mtry = max(1, int(np.sqrt(n_features)))
+        elif self.mtry == "log2":
+            mtry = max(1, int(np.log2(n_features)))
+        else:
+            mtry = max(1, int(self.mtry))
         
         if self.compute_weights:
             weights  = compute_sample_weight("balanced", y[self.event_col])
