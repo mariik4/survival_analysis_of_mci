@@ -24,15 +24,19 @@ class RandomSurvivalForest(BaseEstimator, TransformerMixin):
 
     def __init__(self, num_trees=500, min_node_size=5,
                  mtry=10, splitrule="C", importance="none", compute_weights=True,
-                 time_col="TIME", event_col="EVENT_MCI"):
-        self.num_trees     = num_trees
-        self.min_node_size = min_node_size
-        self.mtry          = mtry
-        self.splitrule     = splitrule
-        self.importance    = importance
-        self.time_col      = time_col    # original name in dataset e.g. "EVENT_MCI"
-        self.event_col     = event_col   # original name in dataset e.g. "TIME"
+                 replace=True, sample_fraction=1.0,
+                 time_col="TIME", event_col="EVENT_MCI", OOB_score=False):
+        self.num_trees       = num_trees
+        self.min_node_size   = min_node_size
+        self.mtry            = mtry
+        self.splitrule       = splitrule
+        self.importance      = importance
+        self.time_col        = time_col
+        self.event_col       = event_col
         self.compute_weights = compute_weights
+        self.replace         = replace
+        self.sample_fraction = sample_fraction
+        self.OOB_score       = OOB_score
 
     def fit(self, X, y):
         ro.r('library(survival)')
@@ -67,15 +71,18 @@ class RandomSurvivalForest(BaseEstimator, TransformerMixin):
         # always use internal R-safe names in the formula
         self.model_ = rangerPkg.ranger(
             ro.Formula("Surv(TIME, EVENTMCI) ~ ."),
-            data          = _to_r(df),
-            num_trees     = int(self.num_trees),
-            min_node_size = int(self.min_node_size),
-            mtry          = mtry,
-            splitrule     = self.splitrule,
-            num_threads   = 0,
-            seed          = SEED,
-            importance    = self.importance,
-            case_weights  = case_weights_r
+            data              = _to_r(df),
+            num_trees         = int(self.num_trees),
+            min_node_size     = int(self.min_node_size),
+            mtry              = mtry,
+            splitrule         = self.splitrule,
+            replace           = self.replace,
+            sample_fraction   = float(self.sample_fraction),
+            num_threads       = 0,
+            seed              = SEED,
+            importance        = self.importance,
+            case_weights      = case_weights_r,
+            keep_inbag        = self.OOB_score
         )
         return self
 
@@ -145,8 +152,9 @@ class RandomSurvivalForest(BaseEstimator, TransformerMixin):
                       for col in df.columns]
         return df
 
-    def __transform_weight_to_r_format(self, case_weights):
-        if case_weights is None:
-            return ro.NULL
-        else:
-            return ro.FloatVector(case_weights)
+    def oob_score_(self):
+        oob_error = self.oob_error()
+        return 1 - oob_error
+    
+    def oob_error(self):
+        return float(np.array(self.model_.rx2("oob.error"))[0])
