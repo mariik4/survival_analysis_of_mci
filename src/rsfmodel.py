@@ -39,6 +39,7 @@ class RandomSurvivalForest(BaseEstimator, TransformerMixin):
         self.OOB_score       = OOB_score
 
     def fit(self, X, y):
+        print(f"\n\nRunning Random Survival Forest with parameters: num_trees={self.num_trees}, min_node_size={self.min_node_size}, mtry={self.mtry}, splitrule='{self.splitrule}', importance='{self.importance}', compute_weights={self.compute_weights}, replace={self.replace}, sample_fraction={self.sample_fraction}")
         ro.r('library(survival)')
         ro.r('library(ranger)')
 
@@ -82,14 +83,17 @@ class RandomSurvivalForest(BaseEstimator, TransformerMixin):
             seed              = SEED,
             importance        = self.importance,
             case_weights      = case_weights_r,
-            keep_inbag        = self.OOB_score
+            oob_error         = self.OOB_score
         )
+
         return self
 
     def predict(self, X):
         X_clean = self.__clean_column_names(pd.DataFrame(X).copy())
-        pred = rangerPkg.predict_ranger(self.model_, data=_to_r(X_clean))
-        return self.__field_extractor(pred, "chf").sum(axis=1)
+        pred    = rangerPkg.predict_ranger(self.model_, data=_to_r(X_clean))
+        result  = self.__field_extractor(pred, "chf").sum(axis=1)
+        
+        return result
 
     def predict_survival_function(self, X):
         X_clean = self.__clean_column_names(pd.DataFrame(X).copy())
@@ -157,4 +161,4 @@ class RandomSurvivalForest(BaseEstimator, TransformerMixin):
         return 1 - oob_error
     
     def oob_error(self):
-        return float(np.array(self.model_.rx2("oob.error"))[0])
+        return self.model_.rx2("prediction.error")[0]
