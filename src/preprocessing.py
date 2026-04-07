@@ -40,6 +40,13 @@ def split_features_target(df):
     y = build_survival_target(df)
     return X, y
 
+def concat_features_target(X, y):
+    """Concatenate features and survival target into a single DataFrame."""
+    y_df = pd.DataFrame({
+        SURVIVAL_TIME_COL: y[SURVIVAL_TIME_COL],
+        SURVIVAL_EVENT_COL: y[SURVIVAL_EVENT_COL]
+    })
+    return pd.concat([X.reset_index(drop=True), y_df], axis=1)
 
 def keep_available(features, columns):
     """Filter *features* to those present in *columns*."""
@@ -62,15 +69,47 @@ def drop_useless_columns(df, columns_to_drop=[]):
     return df_result
 
 
-def filter_columns_by_missing_pattern(df, reference_col='HIV'):
+def filter_columns_by_missing_pattern(df):
     '''
         Define the missingness pattern by the reference column
         Filter via defined patterns all the columns that are not fully follows it
     '''
     print(f"Filtering columns by missing pattern")
 
-    if reference_col not in df.columns:
-        raise KeyError(f"Column '{reference_col}' not found in dataframe.")
+    reference_columns = [
+    'DECCLCOG',
+    'DECCLBE',
+    'DECCLMOT',
+    'LBDEVAL',
+    'FTLDEVAL',
+    'DXMETHOD',
+    'OTHBIOM',
+    'MSA',
+    'FTLDMO',
+    'FTLDNOS',
+    'CVD',
+    'PREVSTK',
+    'ESSTREM',
+    'EPILEP',
+    'HIV',
+    'OTHCOG',
+    'BIPOLDX',
+    'SCHIZOP',
+    'ANXIET',
+    'DELIR',
+    'PTSDDX',
+    'IMPSUB',
+    'OTHCOND',
+    'DECCLIN',
+    'WHODIDDX',
+    'STROKE'
+    ]
+
+    for reference_col in reference_columns:
+        if reference_col in df.columns:
+            break
+    else:
+        raise ValueError(f"None of the reference columns {reference_columns} found in the dataframe")
 
     reference_mask = df[reference_col].isna().to_numpy()
 
@@ -89,7 +128,7 @@ def filter_columns_by_missing_pattern(df, reference_col='HIV'):
     dropped_columns = [col for col in df.columns if col not in kept_columns]
     filtered_df     = df[kept_columns].copy()
 
-    return filtered_df, forward_columns, opposite_columns, dropped_columns
+    return filtered_df, reference_col
 
 
 def define_missingness(df):
@@ -121,11 +160,22 @@ def define_categorical_and_continuous_columns(df):
         if col == 'EVENT_MCI':
             continue
 
-        n_unique = result_df[col].nunique(dropna=True)
+        if result_df[col].dtype == 'object':
+            n_unique = result_df[col].nunique(dropna=True)
+            if n_unique <= 1:
+                result_df.drop(columns=[col], inplace=True)
+                continue
+            categorical_cols.append(col)
+            if n_unique not in categorical_cols_by_unique_count:
+                categorical_cols_by_unique_count[n_unique] = []
+            categorical_cols_by_unique_count[n_unique].append(col)
+            continue
+
+        n_unique = pd.to_numeric(result_df[col], errors='coerce').nunique(dropna=True)
         if n_unique == 1:
             result_df.drop(columns=[col], inplace=True)
             continue
-        if 2 <= n_unique <= 10 or col in unusual_categorical:
+        if 2 <= n_unique <= 12 or col in unusual_categorical:
             categorical_cols.append(col)
             if n_unique not in categorical_cols_by_unique_count:
                 categorical_cols_by_unique_count[n_unique] = []
@@ -151,18 +201,8 @@ def clean_columns(df):
         # check 1: overall imbalance
         col_value_proportions = df_clean[col].value_counts(normalize=True, dropna=True)
         if col_value_proportions.iloc[0] > 0.99:
-            print(f"Column '{col}' is overall imbalanced ({col_value_proportions.iloc[0]:.2%})")
             df_clean.drop(columns=[col], inplace=True)
             continue  # no need to check further
-
-        # check 2: separation within event groups
-        events = df_clean["EVENT_MCI"].astype(bool)
-        for group_name, mask in [("events", events), ("non-events", ~events)]:
-            group_proportions = df_clean.loc[mask, col].value_counts(normalize=True, dropna=True)
-            if group_proportions.iloc[0] > 0.95:
-                print(f"Column '{col}' is imbalanced within {group_name} ({group_proportions.iloc[0]:.2%})")
-                df_clean.drop(columns=[col], inplace=True)
-                break
 
     for col in all_continuous_cols:
         if col not in df_clean.columns:
@@ -222,16 +262,21 @@ def select_features_subset(df, feature_names, categorical_cols, continuous_cols)
     return df[raw_features]
 
 
-def low_missingness_complete_case_analysis(df, low_missingness_columns):
+def low_missingness_complete_case_analysis(df, low_missingness_columns=None):
     '''
-       Perform complete-case analysis on low-missing columns
+       Perform complete-case analysis on low-missing columnsm
+       Default: define missingness columns itself
+       if low missingness columns procided, perform complete-case analysis on them
     '''
     print(f"Complete-case analysis on low-missing columns")
     df_result = df.copy()
-    low_missing_in_filtered = [c for c in low_missingness_columns if c in df_result.columns]
-    if len(low_missing_in_filtered) > 0:
+
+    if low_missingness_columns is None:
+        low_missingness_columns = define_missingness(df_result)[0]
+
+    if len(low_missingness_columns) > 0:
         nacc_missing_free_v2_v3 = df_result.dropna(
-            subset=low_missing_in_filtered
+            subset=low_missingness_columns
         ).copy()
     else:
         nacc_missing_free_v2_v3 = df_result.copy()
@@ -252,7 +297,7 @@ def create_missingness_indicators(df, column_ref_indicator='HIV'):
 # ---------------------------------------------------------------------------
 
 class RareCategoryCollapser(BaseEstimator, TransformerMixin):
-    def __init__(self, threshold=0.01, categorical_cols=None, non_collected_placeholder=None):
+    def __init__(self, threshold=0.05, categorical_cols=None, non_collected_placeholder=None):
         self.threshold                  = threshold
         self.categorical_cols           = categorical_cols
         self.non_collected_placeholder  = non_collected_placeholder
@@ -351,7 +396,6 @@ def build_preprocessing_pipeline(categorical_columns, continuous_columns, select
     categorical_pipeline = Pipeline([
         ('imputer', CustomConstantImputer(fill_value=NOT_COLLECTED_PLACEHOLDER_VALUE)),
         ('rare_collapser', RareCategoryCollapser(
-            threshold=0.01,
             categorical_cols=categorical_columns,
             non_collected_placeholder=NOT_COLLECTED_PLACEHOLDER_VALUE,
         )),
@@ -389,54 +433,47 @@ class BaseDatasetPreprocessor:
         self._pipeline_input_cols = None
         self._retained_columns    = None
 
-    def fit_transform(self, df):
-        """
-          Fit the base pipeline on df and return preprocessed (X, y).
+    def fit(self, X, y=None):
+        self._fit_structural_cleanup(X)
+        self._fit_transform_pipeline(self._get_features_data())
+        return self
 
-          Steps
-          -----
-          1. Structural cleanup (drop useless / low-variance columns, missingness
-             indicators, column typing).
-          2. Complete-case analysis on low-missingness columns.
-          3. Fit + apply the preprocessing pipeline on the full cleaned data.
-        """
-        self._fit_structural_cleanup(df)
-        X, y = self._apply_complete_case_and_split(self._cleaned_df)
-        X_preprocessed = self._fit_transform_pipeline(X)
-        return X_preprocessed, y
-
-    def transform(self, df):
-        """
-          Apply the already-fitted base pipeline to df and return (X, y).
-        """
+    def transform(self, X, y=None):
         self._assert_pipeline_fitted()
-        self._apply_structural_cleanup(df)
-        X, y = self._apply_complete_case_and_split(self._cleaned_df)
-        X_preprocessed = self._transform_pipeline(X)
-        return X_preprocessed, y
+        self._apply_structural_cleanup(X)
+        return self._transform_pipeline(self._get_features_data())
 
-    def _fit_structural_cleanup(self, df):
+    def fit_transform(self, X, y=None):
+        self._fit_structural_cleanup(X)
+        return self._fit_transform_pipeline(self._get_features_data())
+
+    def _get_features_data(self):
+        features_data = [c for c in self._cleaned_df.columns
+                        if c not in (SURVIVAL_EVENT_COL, SURVIVAL_TIME_COL)]
+        return self._cleaned_df[features_data]
+
+    def _fit_structural_cleanup(self, X):
         """
           Data-dependent cleaning: drop useless columns, apply missingness filtering,
           create missingness indicators, infer column types, and drop low-variance /
           imbalanced columns. Stores the resulting column structure for transform.
         """
-        df = drop_useless_columns(df.copy())
+        X_copy = drop_useless_columns(X.copy())
 
-        low_missing, _medium_missing, _high_missing = define_missingness(df)
-        medium_filtered, *_ = filter_columns_by_missing_pattern(df[_medium_missing])
+        low_missing, _medium_missing, _high_missing = define_missingness(X_copy)
+        medium_filtered, self.pattern_ref_col = filter_columns_by_missing_pattern(X_copy[_medium_missing])
 
-        retained_cols = medium_filtered.columns.tolist() + low_missing
-        df            = df[retained_cols].copy()
+        retained_cols   = medium_filtered.columns.tolist() + low_missing
+        X               = X[retained_cols].copy()
 
-        df = create_missingness_indicators(df)
-        df, categorical_cols, continuous_cols = clean_columns(df)
+        X = create_missingness_indicators(X, column_ref_indicator=self.pattern_ref_col)
+        X, categorical_cols, continuous_cols = clean_columns(X)
 
         self._categorical_cols = [c for c in categorical_cols if c not in (SURVIVAL_EVENT_COL, SURVIVAL_TIME_COL)]
         self._continuous_cols  = [c for c in continuous_cols  if c not in (SURVIVAL_EVENT_COL, SURVIVAL_TIME_COL)]
-        self._cleaned_df       = df
+        self._cleaned_df       = X
         self._low_missing_cols = low_missing
-        self._retained_columns = list(df.columns)
+        self._retained_columns = list(X.columns)
 
     def _apply_structural_cleanup(self, df):
         """
@@ -444,29 +481,33 @@ class BaseDatasetPreprocessor:
           Does not recompute any data-dependent decisions.
         """
         df = drop_useless_columns(df.copy())
-        df = create_missingness_indicators(df)
-        available = [c for c in self._retained_columns if c in df.columns]
-        self._cleaned_df = df[available].copy()
-
-    def _apply_complete_case_and_split(self, df, restrict_to_cols=None):
-        """
-          Run complete-case analysis on low missingness columns
-        """
-        low_missingness_cols  = keep_available(restrict_to_cols or self._low_missing_cols, df.columns)
-        cleaned               = low_missingness_complete_case_analysis(df, low_missingness_cols)
-        return split_features_target(cleaned)
+        df = create_missingness_indicators(df, column_ref_indicator=self.pattern_ref_col)
+        available_cols = [c for c in self._retained_columns if c in df.columns]
+        self._cleaned_df = df[available_cols].copy()
 
     def _fit_transform_pipeline(self, X):
-        active_cat  = keep_available(self._categorical_cols, X.columns)
-        active_cont = keep_available(self._continuous_cols,  X.columns)
+        actual_categoricals  = keep_available(self._categorical_cols, X.columns)
+        actual_continuous = keep_available(self._continuous_cols,  X.columns)
 
-        self._pipeline            = build_preprocessing_pipeline(active_cat, active_cont)
+        self._pipeline            = build_preprocessing_pipeline(actual_categoricals, actual_continuous)
         self._pipeline_input_cols = list(X.columns)
         return self._pipeline.fit_transform(X)
-
+    
     def _transform_pipeline(self, X):
-        X_aligned = X.reindex(columns=self._pipeline_input_cols, fill_value=np.nan)
+        missing_cols = set(self._pipeline_input_cols) - set(X.columns)
+        if missing_cols:
+            raise ValueError(f"Missing expected columns: {missing_cols}")
+        
+        X_aligned = X.reindex(columns=self._pipeline_input_cols)
         return self._pipeline.transform(X_aligned)
+    
+    def get_low_missingness_cols(self):
+        """Return the low-missingness columns identified during fit."""
+        if self._low_missing_cols is None:
+            raise RuntimeError(
+                "Preprocessor is not fitted. Call fit() or fit_transform() first."
+            )
+        return list(self._low_missing_cols)
 
     def _assert_pipeline_fitted(self):
         if self._pipeline is None:
