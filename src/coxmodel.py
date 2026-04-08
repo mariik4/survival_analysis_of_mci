@@ -21,7 +21,9 @@ class CoxPH(CoxPHFitter, BaseEstimator):
             df = self._create_weights(df, self.event_col)
             kwargs["weights_col"] = self._weights_col
             kwargs["robust"] = True
-        return super().fit(df, duration_col=self.duration_col, event_col=self.event_col, **kwargs)
+        super().fit(df, duration_col=self.duration_col, event_col=self.event_col, **kwargs)
+        self.is_fitted_ = True
+        return self
 
     def get_feature_importance(self):
         return self.summary[["coef", "exp(coef)", "p"]]

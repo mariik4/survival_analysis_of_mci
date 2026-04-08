@@ -423,7 +423,7 @@ def build_preprocessing_pipeline(categorical_columns, continuous_columns, select
 # Dataset preprocessor
 # ---------------------------------------------------------------------------
 
-class BaseDatasetPreprocessor:
+class BaseDatasetPreprocessor(BaseEstimator, TransformerMixin):
     def __init__(self):
         self._cleaned_df          = None
         self._low_missing_cols    = None
@@ -508,6 +508,9 @@ class BaseDatasetPreprocessor:
                 "Preprocessor is not fitted. Call fit() or fit_transform() first."
             )
         return list(self._low_missing_cols)
+
+    def __sklearn_is_fitted__(self):
+        return self._pipeline is not None
 
     def _assert_pipeline_fitted(self):
         if self._pipeline is None:
