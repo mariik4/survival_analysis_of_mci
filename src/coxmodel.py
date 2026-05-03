@@ -1,8 +1,8 @@
 import numpy as np
 import pandas as pd
+
 from lifelines import CoxPHFitter
 from sklearn.base import BaseEstimator
-from sklearn.model_selection import GridSearchCV, KFold
 from sklearn.utils.class_weight import compute_sample_weight
 from lifelines.utils import concordance_index
 

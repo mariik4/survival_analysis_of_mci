@@ -8,10 +8,6 @@ RUN apt-get update && apt-get install -y \
     libssl-dev \
     && apt-get clean
 
-# # Tell R where to install and find packages
-# ENV R_LIBS_USER=/usr/local/lib/R/library
-# RUN mkdir -p /usr/local/lib/R/library
-
 # Install R packages
 COPY r_packages_install.R .
 RUN Rscript r_packages_install.R
@@ -19,7 +15,6 @@ RUN Rscript r_packages_install.R
 # Install Python packages
 COPY requirements.txt .
 RUN pip3 install -r requirements.txt
-
 RUN pip3 install --upgrade pip setuptools wheel
 
 EXPOSE 8888

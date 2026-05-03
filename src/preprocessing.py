@@ -1,9 +1,9 @@
 import numpy as np
 import pandas as pd
+
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler, PowerTransformer
-from sklearn.impute import SimpleImputer
 from sklearn.compose import ColumnTransformer
 from sksurv.util import Surv
 
@@ -269,18 +269,13 @@ def low_missingness_complete_case_analysis(df, low_missingness_columns=None):
        if low missingness columns procided, perform complete-case analysis on them
     '''
     print(f"Complete-case analysis on low-missing columns")
-    df_result = df.copy()
 
     if low_missingness_columns is None:
-        low_missingness_columns = define_missingness(df_result)[0]
+        low_missingness_columns = define_missingness(df)[0]
 
     if len(low_missingness_columns) > 0:
-        nacc_missing_free_v2_v3 = df_result.dropna(
-            subset=low_missingness_columns
-        ).copy()
-    else:
-        nacc_missing_free_v2_v3 = df_result.copy()
-    return nacc_missing_free_v2_v3
+        return df.dropna(subset=low_missingness_columns)
+    return df
 
 
 def create_missingness_indicators(df, column_ref_indicator='HIV'):
@@ -304,6 +299,7 @@ class RareCategoryCollapser(BaseEstimator, TransformerMixin):
         self.rare_categories_           = {}
 
     def fit(self, X, y=None):
+        print("Colapsing rare categories")
         if self.non_collected_placeholder is None:
             raise ValueError('non_collected_placeholder cannot be None')
 
@@ -341,6 +337,8 @@ class CustomOneHotEncoder(BaseEstimator, TransformerMixin):
         self.encoder                    = None
 
     def fit(self, X, y=None):
+        print("Apply One-Hot-Encoding")
+
         df_result       = X.copy()
         categorical_df  = df_result[self.categorical_cols].astype(str)
         self.encoder    = OneHotEncoder(handle_unknown='ignore', sparse_output=False)
@@ -371,6 +369,8 @@ class CustomConstantImputer(BaseEstimator, TransformerMixin):
         self.fill_value = fill_value
 
     def fit(self, X, y=None):
+        print("Apply MNAR placeholder imputation")
+
         if self.fill_value is None:
             raise ValueError('fill_value cannot be None')
         self.feature_names_in_ = np.asarray(X.columns, dtype=object)
@@ -404,7 +404,6 @@ def build_preprocessing_pipeline(categorical_columns, continuous_columns, select
 
     # Continuous features pipeline
     continious_pipeline = Pipeline([
-        ('imputer', SimpleImputer(strategy='mean')),
         ('boxcox-transformer', PowerTransformer(method='yeo-johnson')),
         ('scaler', StandardScaler()),
     ]).set_output(transform='pandas')
@@ -458,12 +457,17 @@ class BaseDatasetPreprocessor(BaseEstimator, TransformerMixin):
           create missingness indicators, infer column types, and drop low-variance /
           imbalanced columns. Stores the resulting column structure for transform.
         """
+        print(f"\n\nFitting structural cleanup")
         X_copy = drop_useless_columns(X.copy())
 
         low_missing, _medium_missing, _high_missing = define_missingness(X_copy)
         medium_filtered, self.pattern_ref_col = filter_columns_by_missing_pattern(X_copy[_medium_missing])
+        # Low missingness columns complete case analysis is performed as preliminary step before starting preprocessing fitting
+        # This preliminary step could not be added into the final preprocessing pipeline, since it could lead to inconsistence inside cross-validation folds
+        # Therefore since during cross validation the missingness category with some small probability can be changed for some columns, to be sure, we decided to drop all the columns that have any NaN values and related to low missingness
+        low_missing_filtered = [col for col in low_missing if col in X_copy.columns and not X_copy[col].isna().any()]
 
-        retained_cols   = medium_filtered.columns.tolist() + low_missing
+        retained_cols   = medium_filtered.columns.tolist() + low_missing_filtered
         X               = X[retained_cols].copy()
 
         X = create_missingness_indicators(X, column_ref_indicator=self.pattern_ref_col)
@@ -472,7 +476,7 @@ class BaseDatasetPreprocessor(BaseEstimator, TransformerMixin):
         self._categorical_cols = [c for c in categorical_cols if c not in (SURVIVAL_EVENT_COL, SURVIVAL_TIME_COL)]
         self._continuous_cols  = [c for c in continuous_cols  if c not in (SURVIVAL_EVENT_COL, SURVIVAL_TIME_COL)]
         self._cleaned_df       = X
-        self._low_missing_cols = low_missing
+        self._low_missing_cols = low_missing_filtered
         self._retained_columns = list(X.columns)
 
     def _apply_structural_cleanup(self, df):
@@ -480,10 +484,10 @@ class BaseDatasetPreprocessor(BaseEstimator, TransformerMixin):
           Apply the column structure learned during fit to new data.
           Does not recompute any data-dependent decisions.
         """
-        df = drop_useless_columns(df.copy())
+        df = drop_useless_columns(df)
         df = create_missingness_indicators(df, column_ref_indicator=self.pattern_ref_col)
         available_cols = [c for c in self._retained_columns if c in df.columns]
-        self._cleaned_df = df[available_cols].copy()
+        self._cleaned_df = df[available_cols]
 
     def _fit_transform_pipeline(self, X):
         actual_categoricals  = keep_available(self._categorical_cols, X.columns)

@@ -1,12 +1,16 @@
+import gc
+
 import numpy as np
 import pandas as pd
+
+from sklearn.base import BaseEstimator, TransformerMixin
+from sksurv.metrics import concordance_index_censored
+from sklearn.utils.class_weight import compute_sample_weight
+
 import rpy2.robjects as ro
 from rpy2.robjects.packages import importr
 from rpy2.robjects import pandas2ri
 from rpy2.robjects.conversion import localconverter
-from sklearn.base import BaseEstimator, TransformerMixin
-from sksurv.metrics import concordance_index_censored
-from sklearn.utils.class_weight import compute_sample_weight
 
 rangerPkg = importr("ranger")
 SEED = 42
@@ -39,7 +43,7 @@ class RandomSurvivalForest(BaseEstimator, TransformerMixin):
         self.OOB_score       = OOB_score
 
     def fit(self, X, y):
-        print(f"\n\nRunning Random Survival Forest with parameters: num_trees={self.num_trees}, min_node_size={self.min_node_size}, mtry={self.mtry}, splitrule='{self.splitrule}', importance='{self.importance}', compute_weights={self.compute_weights}, replace={self.replace}, sample_fraction={self.sample_fraction}")
+        print(f"\nRunning Random Survival Forest with parameters: num_trees={self.num_trees}, min_node_size={self.min_node_size}, mtry={self.mtry}, splitrule='{self.splitrule}', importance='{self.importance}', compute_weights={self.compute_weights}, replace={self.replace}, sample_fraction={self.sample_fraction}")
         ro.r('library(survival)')
         ro.r('library(ranger)')
 
@@ -162,3 +166,10 @@ class RandomSurvivalForest(BaseEstimator, TransformerMixin):
     
     def oob_error(self):
         return self.model_.rx2("prediction.error")[0]
+
+    def cleanup(self):
+        if hasattr(self, 'model_') and self.model_ is not None:
+            del self.model_
+            self.model_ = None
+        gc.collect()
+        ro.r('gc()')
