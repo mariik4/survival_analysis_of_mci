@@ -7,11 +7,12 @@ from sklearn.utils.class_weight import compute_sample_weight
 from lifelines.utils import concordance_index
 
 class CoxPH(CoxPHFitter, BaseEstimator):
-    def __init__(self, penalizer=0.0, l1_ratio=0.0, duration_col="TIME", event_col="EVENT_MCI", compute_weights=True):
-        super().__init__(penalizer=penalizer, l1_ratio=l1_ratio)
+    def __init__(self, penalizer=0.0, l1_ratio=0.0, duration_col="TIME", event_col="EVENT_MCI", compute_weights=True, strata=[]):
+        super().__init__(penalizer=penalizer, l1_ratio=l1_ratio, strata=strata)
         self.duration_col    = duration_col
         self.event_col       = event_col
         self.compute_weights = compute_weights
+        self.strata          = strata
         self._weights_col    = "event_weights"
 
     def fit(self, X, y=None, **kwargs):

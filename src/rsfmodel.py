@@ -41,8 +41,12 @@ class RandomSurvivalForest(BaseEstimator, TransformerMixin):
         self.replace         = replace
         self.sample_fraction = sample_fraction
         self.OOB_score       = OOB_score
-
     def fit(self, X, y):
+        if hasattr(self, 'model_') and self.model_ is not None:
+            del self.model_
+            gc.collect()
+            ro.r('gc()')
+
         print(f"\nRunning Random Survival Forest with parameters: num_trees={self.num_trees}, min_node_size={self.min_node_size}, mtry={self.mtry}, splitrule='{self.splitrule}', importance='{self.importance}', compute_weights={self.compute_weights}, replace={self.replace}, sample_fraction={self.sample_fraction}")
         ro.r('library(survival)')
         ro.r('library(ranger)')
@@ -87,7 +91,7 @@ class RandomSurvivalForest(BaseEstimator, TransformerMixin):
             seed              = SEED,
             importance        = self.importance,
             case_weights      = case_weights_r,
-            oob_error         = self.OOB_score
+            oob_error         = self.OOB_score,
         )
 
         return self

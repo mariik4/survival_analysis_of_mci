@@ -151,13 +151,18 @@ def define_categorical_and_continuous_columns(df):
       with a special handling for some unusual categorical columns
     '''
     result_df           = df.copy()
-    unusual_categorical = ['NACCBEHF']
+    unusual_categorical = ['NACCBEHF', "NACCBEHF"]
     categorical_cols    = []
     continuous_cols     = []
+    strata_cols         = []
     categorical_cols_by_unique_count = {}
 
     for col in result_df.columns:
         if col == 'EVENT_MCI':
+            continue
+
+        if col.endswith("_strata"):
+            strata_cols.append(col)
             continue
 
         if result_df[col].dtype == 'object':
@@ -175,7 +180,7 @@ def define_categorical_and_continuous_columns(df):
         if n_unique == 1:
             result_df.drop(columns=[col], inplace=True)
             continue
-        if 2 <= n_unique <= 12 or col in unusual_categorical:
+        if 2 <= n_unique <= 10 or col in unusual_categorical:
             categorical_cols.append(col)
             if n_unique not in categorical_cols_by_unique_count:
                 categorical_cols_by_unique_count[n_unique] = []
@@ -183,7 +188,7 @@ def define_categorical_and_continuous_columns(df):
             continue
         continuous_cols.append(col)
 
-    return categorical_cols, continuous_cols, categorical_cols_by_unique_count
+    return categorical_cols, continuous_cols, strata_cols, categorical_cols_by_unique_count
 
 
 def clean_columns(df):
@@ -193,7 +198,7 @@ def clean_columns(df):
     '''
     print(f"Cleaning columns")
     df_clean = df.copy()
-    all_categorical_cols, all_continuous_cols, categorical_cols_by_unique_count = define_categorical_and_continuous_columns(df_clean)
+    all_categorical_cols, all_continuous_cols, strata_cols, _cats_by_unique = define_categorical_and_continuous_columns(df_clean)
 
     for col in all_categorical_cols:
         if col not in df_clean.columns:
@@ -219,7 +224,7 @@ def clean_columns(df):
     filtered_categorical_cols = keep_available(all_categorical_cols, df_clean.columns)
     filtered_continuous_cols = keep_available(all_continuous_cols, df_clean.columns)
 
-    return df_clean, filtered_categorical_cols, filtered_continuous_cols
+    return df_clean, filtered_categorical_cols, filtered_continuous_cols, strata_cols
 
 
 def decode_preprocessed_feature_name(feature_name, categorical_cols, continuous_cols):
@@ -391,7 +396,7 @@ class CustomConstantImputer(BaseEstimator, TransformerMixin):
 # Preprocessing pipeline builder
 # ---------------------------------------------------------------------------
 
-def build_preprocessing_pipeline(categorical_columns, continuous_columns, selected_features_subset=None):
+def build_preprocessing_pipeline(categorical_columns, continuous_columns, strata_columns=[], selected_features_subset=None):
     # Categorical pipeline
     categorical_pipeline = Pipeline([
         ('imputer', CustomConstantImputer(fill_value=NOT_COLLECTED_PLACEHOLDER_VALUE)),
@@ -408,10 +413,17 @@ def build_preprocessing_pipeline(categorical_columns, continuous_columns, select
         ('scaler', StandardScaler()),
     ]).set_output(transform='pandas')
 
-    columns_preprocessing_pipeline = ColumnTransformer([
+    transformers = [
         ('categorical', categorical_pipeline, categorical_columns),
         ('continuous', continious_pipeline, continuous_columns),
-    ]).set_output(transform='pandas')
+    ]
+
+    if strata_columns:
+        transformers.append(('strata', 'passthrough', strata_columns))
+
+    columns_preprocessing_pipeline = ColumnTransformer(
+        transformers
+    ).set_output(transform='pandas')
 
     return Pipeline([
         ('columns_preprocessing', columns_preprocessing_pipeline),
@@ -423,7 +435,8 @@ def build_preprocessing_pipeline(categorical_columns, continuous_columns, select
 # ---------------------------------------------------------------------------
 
 class BaseDatasetPreprocessor(BaseEstimator, TransformerMixin):
-    def __init__(self):
+    def __init__(self, passthrough_cols=None):
+        self.passthrough_cols     = passthrough_cols
         self._cleaned_df          = None
         self._low_missing_cols    = None
         self._categorical_cols    = None
@@ -471,10 +484,11 @@ class BaseDatasetPreprocessor(BaseEstimator, TransformerMixin):
         X               = X[retained_cols].copy()
 
         X = create_missingness_indicators(X, column_ref_indicator=self.pattern_ref_col)
-        X, categorical_cols, continuous_cols = clean_columns(X)
+        X, categorical_cols, continuous_cols, strata_cols = clean_columns(X)
 
         self._categorical_cols = [c for c in categorical_cols if c not in (SURVIVAL_EVENT_COL, SURVIVAL_TIME_COL)]
         self._continuous_cols  = [c for c in continuous_cols  if c not in (SURVIVAL_EVENT_COL, SURVIVAL_TIME_COL)]
+        self._strata_cols      = [c for c in strata_cols      if c not in (SURVIVAL_EVENT_COL, SURVIVAL_TIME_COL)]
         self._cleaned_df       = X
         self._low_missing_cols = low_missing_filtered
         self._retained_columns = list(X.columns)
@@ -491,9 +505,10 @@ class BaseDatasetPreprocessor(BaseEstimator, TransformerMixin):
 
     def _fit_transform_pipeline(self, X):
         actual_categoricals  = keep_available(self._categorical_cols, X.columns)
-        actual_continuous = keep_available(self._continuous_cols,  X.columns)
+        actual_continuous    = keep_available(self._continuous_cols,  X.columns)
+        actual_strata        = keep_available(self._strata_cols,      X.columns)
 
-        self._pipeline            = build_preprocessing_pipeline(actual_categoricals, actual_continuous)
+        self._pipeline            = build_preprocessing_pipeline(actual_categoricals, actual_continuous, actual_strata)
         self._pipeline_input_cols = list(X.columns)
         return self._pipeline.fit_transform(X)
     
