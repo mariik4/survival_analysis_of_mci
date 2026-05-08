@@ -27,7 +27,7 @@ def _to_r(df):
 class RandomSurvivalForest(BaseEstimator, TransformerMixin):
 
     def __init__(self, num_trees=500, min_node_size=5,
-                 mtry=10, splitrule="C", importance="none", compute_weights=True,
+                 mtry=10, splitrule="C", importance="none", compute_weights=False,
                  replace=True, sample_fraction=1.0,
                  time_col="TIME", event_col="EVENT_MCI", OOB_score=False):
         self.num_trees       = num_trees

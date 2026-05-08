@@ -1,7 +1,11 @@
 import os
+from IPython.display import Image
 
 def save_pic(plt, name):
   plt.savefig(os.path.join("figures", name), dpi=150, bbox_inches="tight")
+
+def show_pic(name):
+    return Image(filename=os.path.join("figures", name))
 
 
 def bin_animals(x):
