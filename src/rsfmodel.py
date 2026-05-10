@@ -77,7 +77,6 @@ class RandomSurvivalForest(BaseEstimator, TransformerMixin):
         else:
             case_weights_r = ro.NULL
 
-        # always use internal R-safe names in the formula
         self.model_ = rangerPkg.ranger(
             ro.Formula("Surv(TIME, EVENTMCI) ~ ."),
             data              = _to_r(df),
@@ -144,7 +143,6 @@ class RandomSurvivalForest(BaseEstimator, TransformerMixin):
         )
         return c
 
-    # ---------- Private Methods ----------
 
     def __get_original_columns(self, clean_names):
         return [self._col_mapping.get(name, name) for name in clean_names]
@@ -155,7 +153,7 @@ class RandomSurvivalForest(BaseEstimator, TransformerMixin):
     def __clean_column_names(self, df):
         """
         R formula interface does not allow special characters in column names.
-        Replace anything that is not a letter, number or underscore with underscore.
+        Replace anything that is not a letter, number or underscore.
         Column names starting with a digit are prefixed with X.
         """
         df = df.copy()

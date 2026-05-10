@@ -8,9 +8,7 @@ from sklearn.compose import ColumnTransformer
 from sksurv.util import Surv
 
 
-# ---------------------------------------------------------------------------
 # Constants
-# ---------------------------------------------------------------------------
 
 LOW_MISSINGNESS_THRESHOLD   = 20
 HIGH_MISSINGNESS_THRESHOLD  = 80
@@ -25,9 +23,7 @@ IMPORTANT_VERY_IMBALANCED_COLUMNS   = ["NACCFADM", "ELAT", "GAMES", "MOGAIT", "M
 N_IMPORTANT_FEATURES = 120
 
 
-# ---------------------------------------------------------------------------
 # Helper functions
-# ---------------------------------------------------------------------------
 
 def build_survival_target(df):
     """Return a structured survival array from *df*."""
@@ -203,11 +199,10 @@ def clean_columns(df):
     for col in all_categorical_cols:
         if col not in df_clean.columns:
             continue
-        # check 1: overall imbalance
         col_value_proportions = df_clean[col].value_counts(normalize=True, dropna=True)
         if col_value_proportions.iloc[0] > 0.99:
             df_clean.drop(columns=[col], inplace=True)
-            continue  # no need to check further
+            continue 
 
     for col in all_continuous_cols:
         if col not in df_clean.columns:
@@ -292,9 +287,7 @@ def create_missingness_indicators(df, column_ref_indicator='HIV'):
     return df_result
 
 
-# ---------------------------------------------------------------------------
 # Pipeline custom components
-# ---------------------------------------------------------------------------
 
 class RareCategoryCollapser(BaseEstimator, TransformerMixin):
     def __init__(self, threshold=0.05, categorical_cols=None, non_collected_placeholder=None):
@@ -392,9 +385,7 @@ class CustomConstantImputer(BaseEstimator, TransformerMixin):
         return np.asarray(input_features, dtype=object)
 
 
-# ---------------------------------------------------------------------------
 # Preprocessing pipeline builder
-# ---------------------------------------------------------------------------
 
 def build_preprocessing_pipeline(categorical_columns, continuous_columns, strata_columns=[], selected_features_subset=None):
     # Categorical pipeline
@@ -430,9 +421,7 @@ def build_preprocessing_pipeline(categorical_columns, continuous_columns, strata
     ]).set_output(transform='pandas')
 
 
-# ---------------------------------------------------------------------------
 # Dataset preprocessor
-# ---------------------------------------------------------------------------
 
 class BaseDatasetPreprocessor(BaseEstimator, TransformerMixin):
     def __init__(self, passthrough_cols=None):
