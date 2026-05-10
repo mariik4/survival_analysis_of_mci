@@ -22,7 +22,7 @@ MANDATORY_FEATURE    = "categorical__group_missing_indicator_0"
 NOT_COLLECTED_PLACEHOLDER_VALUE     = -99.0
 IMPORTANT_VERY_IMBALANCED_COLUMNS   = ["NACCFADM", "ELAT", "GAMES", "MOGAIT", "MOSLOW", "BRNINJ", "OTHPSY"]
 
-N_IMPORTANT_FEATURES = 237
+N_IMPORTANT_FEATURES = 120
 
 
 # ---------------------------------------------------------------------------
